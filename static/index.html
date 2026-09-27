@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Geo-Tracking Demo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
+  #app { display: flex; height: 100%; }
+  #map { flex: 1; }
+  #sidebar { width: 320px; padding: 12px; overflow-y: auto; border-left: 1px solid #ddd; box-sizing: border-box; }
+  #sidebar h2 { font-size: 14px; margin: 16px 0 6px; }
+  #sidebar h2:first-child { margin-top: 0; }
+  label { display: block; font-size: 12px; margin-top: 8px; }
+  input { width: 100%; box-sizing: border-box; padding: 4px; }
+  button { margin-top: 8px; width: 100%; padding: 6px; cursor: pointer; }
+  #alerts { list-style: none; padding: 0; margin: 0; }
+  #alerts li { background: #fff3cd; border: 1px solid #ffe08a; padding: 6px; margin-bottom: 6px; font-size: 12px; border-radius: 4px; }
+  #status { font-size: 12px; color: #666; }
+  .hint { font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <div id="sidebar">
+    <h2>Session</h2>
+    <label>User ID</label>
+    <input id="userId" value="demo-user" />
+    <button id="connectBtn">Connect</button>
+    <div id="status">disconnected</div>
+
+    <h2>New geozone</h2>
+    <p class="hint">Click the map to set the center, then submit.</p>
+    <label>Name</label>
+    <input id="zoneName" value="My Zone" />
+    <label>Radius (meters)</label>
+    <input id="zoneRadius" type="number" value="500" />
+    <div class="hint" id="zoneCoords">No point selected</div>
+    <button id="createZoneBtn">Create geozone</button>
+
+    <h2>Alerts</h2>
+    <ul id="alerts"></ul>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([37.7749, -122.4194], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+const deviceMarkers = new Map();
+const zoneLayers = new Map();
+let selectedPoint = null;
+let socket = null;
+
+function userId() {
+  return document.getElementById('userId').value.trim();
+}
+
+function setStatus(text) {
+  document.getElementById('status').textContent = text;
+}
+
+map.on('click', (e) => {
+  selectedPoint = e.latlng;
+  document.getElementById('zoneCoords').textContent =
+    `lat=${e.latlng.lat.toFixed(5)}, lon=${e.latlng.lng.toFixed(5)}`;
+});
+
+async function loadGeozones() {
+  const res = await fetch('/api/v1/geozones', { headers: { 'X-User-Id': userId() } });
+  if (!res.ok) return;
+  const zones = await res.json();
+  for (const layer of zoneLayers.values()) map.removeLayer(layer);
+  zoneLayers.clear();
+  for (const zone of zones) {
+    const circle = L.circle([zone.latitude, zone.longitude], {
+      radius: zone.radius_m,
+      color: '#3388ff',
+    }).addTo(map).bindPopup(zone.name);
+    zoneLayers.set(zone.id, circle);
+  }
+}
+
+document.getElementById('createZoneBtn').addEventListener('click', async () => {
+  if (!selectedPoint) {
+    alert('Click the map to choose a center point first.');
+    return;
+  }
+  const body = {
+    name: document.getElementById('zoneName').value || 'Zone',
+    latitude: selectedPoint.lat,
+    longitude: selectedPoint.lng,
+    radius_m: Number(document.getElementById('zoneRadius').value) || 500,
+  };
+  const res = await fetch('/api/v1/geozones', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-User-Id': userId() },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) {
+    await loadGeozones();
+  } else {
+    alert('Failed to create geozone: ' + (await res.text()));
+  }
+});
+
+function upsertDeviceMarker(deviceId, lat, lon) {
+  let marker = deviceMarkers.get(deviceId);
+  if (!marker) {
+    marker = L.circleMarker([lat, lon], { radius: 5, color: '#e74c3c' })
+      .addTo(map)
+      .bindTooltip(deviceId);
+    deviceMarkers.set(deviceId, marker);
+  } else {
+    marker.setLatLng([lat, lon]);
+  }
+}
+
+function pushAlert(event) {
+  const li = document.createElement('li');
+  li.textContent = `${event.device_id} entered "${event.geozone_name}" at ${event.timestamp}`;
+  const list = document.getElementById('alerts');
+  list.prepend(li);
+  while (list.children.length > 25) list.removeChild(list.lastChild);
+}
+
+document.getElementById('connectBtn').addEventListener('click', () => {
+  if (socket) socket.close();
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  socket = new WebSocket(`${protocol}://${location.host}/ws?user_id=${encodeURIComponent(userId())}`);
+  socket.onopen = () => setStatus('connected as ' + userId());
+  socket.onclose = () => setStatus('disconnected');
+  socket.onerror = () => setStatus('error');
+  socket.onmessage = (msg) => {
+    const event = JSON.parse(msg.data);
+    if (event.type === 'location_update') {
+      upsertDeviceMarker(event.device_id, event.latitude, event.longitude);
+    } else if (event.type === 'alert') {
+      pushAlert(event);
+    }
+  };
+  loadGeozones();
+});
+</script>
+</body>
+</html>

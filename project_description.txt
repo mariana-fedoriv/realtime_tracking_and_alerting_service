@@ -1,0 +1,43 @@
+Real-Time Geo-Tracking & Alerting Service
+Overview
+Build a backend service that ingests real-time coordinate data from multiple tracking devices and streams these locations to web clients. Users must be able to define circular geozones on a map and receive real-time notifications whenever a device enters or reports a location within their defined zones.
+Core Functional Requirements
+    1. Device Data Ingestion:
+        ◦ Provide an endpoint (HTTP or WebSocket) to receive location payloads (e.g., device_id, latitude, longitude, timestamp).
+    2. Geozone Management:
+        ◦ Provide REST endpoints for users to create, read, update, and delete geozones.
+        ◦ A geozone is defined by a center point (latitude, longitude) and a radius in meters.
+    3. Live Tracking & Notifications (WebSockets):
+        ◦ Provide a WebSocket connection for client applications.
+        ◦ Live Map: Stream incoming device coordinates to the connected clients in real-time.
+        ◦ Alerts: Evaluate incoming device coordinates against the user’s active geozones. If a device is within a zone, push an alert notification to the user via the WebSocket.
+    4. Session & State Management:
+        ◦ Support basic user identification (a simplified mock authentication or header-based user ID is acceptable; full OAuth is not required).
+        ◦ Crucial: The system must support multiple active sessions per user (e.g., a user has the dashboard open on both a laptop and a mobile phone simultaneously). Alerts and location updates must route correctly to all active connections for that user.
+        ◦ Geozones are strictly isolated per user.
+    5. High-Load Simulation (Data Generator):
+        ◦ Write an asynchronous Python script (generator.py) to stress-test the ingestion and broadcasting architecture.
+        ◦ The script must simulate 10,000 unique devices moving simultaneously and reporting their coordinates every few seconds.
+        ◦ The movement does not need complex pathfinding, but coordinates should drift realistically (e.g., applying a small random delta to latitude/longitude on each tick) rather than sending static locations.
+Technical Stack & Constraints
+    • Language/Framework: Python 3.10+, FastAPI
+    • Database: PostgreSQL with the PostGIS extension
+    • ORM: SQLAlchemy (Async mode is highly encouraged)
+    • Infrastructure: Docker & docker-compose
+    • Frontend: You are not evaluated on frontend skills. You may use LLM-generated HTML/JS to provide a simple UI (e.g., using Leaflet.js) to demonstrate that the backend features function correctly.
+Deliverables
+    1. A Git repository containing the source code.
+    2. A docker-compose.yml file that spins up the entire environment (Application, PostgreSQL+PostGIS, and any other required services like Redis if used).
+    3. The generator.py script.
+    4. A README.md containing:
+        ◦ Instructions on how to build and run the project.
+        ◦ Instructions on how to run the load generator.
+        ◦ A brief explanation of the architectural choices, particularly regarding spatial queries, WebSocket state management, and how the system handles the high-throughput device data.
+Evaluation Criteria (Middle+ Expectations)
+We will evaluate your submission based on the following:
+    • High-Load Architecture & Concurrency: Handling 10,000 concurrent devices requires careful resource management. We will look at how you handle database connection pooling (preventing pool exhaustion), backpressure, and whether the event loop gets blocked by heavy I/O or spatial computations.
+    • Spatial Database Utilization: We expect to see proper use of PostGIS spatial types (e.g., Geography vs Geometry) and efficient spatial query functions (like ST_DWithin) rather than fetching raw coordinates and calculating distances in Python memory.
+    • WebSocket Architecture: How you manage the state of active connections, handle multiple concurrent connections for a single user, and ensure fast, non-blocking message broadcasting under load.
+    • Asynchronous Programming: Correct implementation of async/await in FastAPI, the data generator, and SQLAlchemy.
+    • Code Quality & Project Structure: Clean separation of concerns, type hinting, and basic test coverage for the core spatial logic.
+    • Docker Configuration: A clean, functional, and secure multi-container setup.
